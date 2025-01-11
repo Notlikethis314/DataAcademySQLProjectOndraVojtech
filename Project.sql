@@ -133,6 +133,8 @@ ORDER BY
 	table_flag,
 	"year");
 ---------------------------------------------------------
+-- Vyzkumna otazka 1
+
 SELECT 
 	name,
 	avg(percent_diff) AS avg_percent_diff
@@ -155,20 +157,101 @@ FROM (SELECT
 	WHERE table_flag = 'payroll'
 	ORDER BY
 	    code, "year")
-GROUP BY name
-   ;
+GROUP BY name;
+
+----------------------------------------------------------------------------------------------
+-- Vyzkumna otazka 2
 
 SELECT 
-	t1.name,
-	t1."year",
-	t1.avg_value
-FROM t_vojtech_ondra_project_sql_primary_final t1
-JOIN t_vojtech_ondra_project_sql_primary_final t2 ON (t1."year"=t2."year" AND t2.name IN(111301, 114201))
-WHERE "year" IN (2006, 2018) AND table_flag = 'payroll';
+	payroll.name,
+	payroll."year",
+	goods.name,
+	floor(payroll.avg_value / goods.avg_value) AS number_of_goods
+FROM
+	t_vojtech_ondra_project_sql_primary_final payroll
+JOIN t_vojtech_ondra_project_sql_primary_final goods ON 
+	(
+		payroll."year" = goods."year"
+		AND goods.code IN(
+			'111301', '114201'
+		)
+		AND goods.table_flag = 'goods_price'
+	)
+WHERE
+	payroll."year" IN (
+		2006, 2018
+	)
+	AND payroll.table_flag = 'payroll';
+
+------------------------------------------------------------------------
+-- Výzkumná otázka 3
+-- 3.Která kategorie potravin zdražuje nejpomaleji (je u ní nejnižší percentuální meziroční nárůst)?
+SELECT 
+	name,
+	avg(percent_diff) AS avg_percent_diff
+FROM (SELECT
+	    name,
+	    code,
+	    "year",
+	    table_flag,
+	    avg_value,
+	    LAG(avg_value) OVER (PARTITION BY code ORDER BY "year") AS prev_value,
+	    CASE
+	        WHEN LAG(avg_value) OVER (PARTITION BY code ORDER BY "year") IS NOT NULL THEN
+	            (avg_value - LAG(avg_value) OVER (PARTITION BY code ORDER BY "year")) 
+	            / LAG(avg_value) OVER (PARTITION BY code ORDER BY "year")*100
+	        ELSE
+	            NULL
+	    END AS percent_diff
+	FROM
+	    t_vojtech_ondra_project_sql_primary_final
+	WHERE table_flag = 'goods_price'
+	ORDER BY
+	    code, "year")
+GROUP BY name;
+
+-------------------------------------------------------------------------------------------
+-- 4. výzkumná otázka
+-- 4.Existuje rok, ve kterém byl meziroční nárůst cen potravin výrazně vyšší než růst mezd (větší než 10 %)?
+CREATE TEMP TABLE yearly_perc_changes AS (
+SELECT
+    name,
+    code,
+    "year",
+    table_flag,
+    avg_value,
+    LAG(avg_value) OVER (PARTITION BY code ORDER BY "year") AS prev_value,
+    CASE
+        WHEN LAG(avg_value) OVER (PARTITION BY code ORDER BY "year") IS NOT NULL THEN
+            (avg_value - LAG(avg_value) OVER (PARTITION BY code ORDER BY "year")) 
+            / LAG(avg_value) OVER (PARTITION BY code ORDER BY "year")*100
+        ELSE
+            NULL
+    END AS percent_diff
+FROM
+    t_vojtech_ondra_project_sql_primary_final
+ORDER BY
+	code, "year"
+);
+
 
 SELECT 
-	t1.name,
-	t1.code,
-	t1."year",
-	t1.avg_value
-FROM t_vojtech_ondra_project_sql_primary_final t1
+	ypc_payroll."year",
+	round(avg(ypc_payroll.percent_diff)::NUMERIC, 2) AS avg_perc_diff_payroll,
+	round(avg(ypc_goods.percent_diff)::NUMERIC, 2) AS avg_perc_diff_goods,
+	round((avg(ypc_goods.percent_diff) - avg(ypc_payroll.percent_diff))::NUMERIC, 2) AS difference_goods_payroll
+FROM
+	yearly_perc_changes ypc_payroll
+JOIN yearly_perc_changes ypc_goods ON
+	(
+		ypc_goods."year" = ypc_payroll."year"
+			AND ypc_goods.table_flag = 'goods_price'
+	)
+WHERE
+	ypc_payroll.table_flag = 'payroll'
+GROUP BY
+	ypc_payroll."year"
+ORDER BY
+	ypc_payroll."year"
+;
+
